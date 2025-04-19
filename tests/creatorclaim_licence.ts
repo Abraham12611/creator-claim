@@ -33,7 +33,7 @@ describe("creatorclaim_licence", () => {
   let buyerTokenAccount: web3.PublicKey = null;
   let treasuryTokenAccount: web3.PublicKey = null;
   let licencePDA: web3.PublicKey = null;
-  let licenceBump: number = null;
+  let licenceBump: number = 0;
 
   const purchasePrice = new BN(100 * 10**6); // Example: 100 USDC (assuming 6 decimals)
 
