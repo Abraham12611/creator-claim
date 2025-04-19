@@ -5,12 +5,29 @@ use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
 mod state;
 use state::*;
 
-// Assuming the Certificate program's details are needed for validation
-// Need to import the CertificateDetails struct if we check it directly
-// For now, we might just rely on the PDA derivation using its pubkey.
-// use creatorclaim_certificate::state::CertificateDetails; // Example if needed
+// Import the certificate program ID to check ownership (replace with actual ID)
+// This requires the certificate program crate to be a dependency in Cargo.toml
+// and correctly declared in Anchor.toml [programs.cluster]
+// use creatorclaim_certificate;
+
+// Placeholder for actual Certificate Program ID
+// In a real setup, this would likely be imported or defined globally.
+// declare_id!("CERTxxxxxxxxxxxxxxxxxx"); // Example ID for certificate program
+const CERTIFICATE_PROGRAM_ID: &str = "CERTxxxxxxxxxxxxxxxxxx";
 
 declare_id!("LICxxxxxxxxxxxxxxxxxx"); // Replace with actual Program ID after deploy
+
+#[cfg(not(feature = "no-entrypoint"))]
+use solana_security_txt::security_txt;
+
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    name: "CreatorClaim Licence Program",
+    project_url: "http://example.com", // TODO: Replace with actual URL
+    contacts: "email:security@example.com", // TODO: Replace with actual contact
+    policy: "https://example.com/security-policy", // TODO: Replace with actual URL
+    preferred_languages: "en"
+}
 
 #[program]
 pub mod creatorclaim_licence {
@@ -153,7 +170,12 @@ pub struct PurchaseLicence<'info> {
     #[account(mut)]
     pub buyer: Signer<'info>,
 
-    #[account(mut)] // Buyer's token account needs to be mutable for transfer
+    #[account(mut,
+        // Ensure the buyer token account is owned by the token program
+        token::program = token_program,
+        // Optional: Ensure it's for the correct mint (USDC)
+        token::mint = payment_mint
+    )]
     pub buyer_token_account: Account<'info, TokenAccount>,
 
     /// Initialize the Licence PDA.
@@ -163,28 +185,34 @@ pub struct PurchaseLicence<'info> {
         payer = buyer,
         space = Licence::LEN,
         seeds = [b"licence", certificate_details.key().as_ref(), buyer.key().as_ref()],
-        bump
+        bump,
+        owner = system_program.key()
     )]
     pub licence: Account<'info, Licence>,
 
     /// CHECK: We use the key for PDA derivation. Could add constraints later
-    /// e.g., check owner is the certificate program ID.
-    /// #[account(owner = creatorclaim_certificate::ID)] // Example if needed
+    /// like checking owner is the certificate program ID.
+    /// #[account(owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap())] // Example owner check
     pub certificate_details: UncheckedAccount<'info>, // Links to the specific work being licensed
 
-    #[account(mut)] // Treasury receives fees
+    #[account(mut,
+        // Ensure the treasury token account is owned by the token program
+        token::program = token_program,
+        // Optional: Ensure it's for the correct mint (USDC)
+        token::mint = payment_mint
+    )]
     pub treasury_token_account: Account<'info, TokenAccount>,
 
     // TODO: Add remaining accounts for royalty recipients
     // Example: #[account(mut)] pub royalty_recipient_1_token_account: Account<'info, TokenAccount>,
     // These might need to be passed in ctx.remaining_accounts depending on design.
 
+    #[account(token::program = token_program)] // Ensure mint is owned by token program
     pub payment_mint: Account<'info, Mint>, // e.g., USDC mint
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
 }
 
-// TODO: Define Context for `revoke_licence`
 /// Context for the `revoke_licence` instruction.
 #[derive(Accounts)]
 pub struct RevokeLicence<'info> {
@@ -193,20 +221,22 @@ pub struct RevokeLicence<'info> {
     pub revoker: Signer<'info>,
 
     /// The licence account to be modified.
-    #[account(mut)] // Needs to be mutable to change the status
+    /// Ensure it's owned by this program (implicit check via Account type).
+    #[account(mut,
+        // Constraint to ensure this licence belongs to the provided certificate_details key
+        constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
+    )]
     pub licence: Account<'info, Licence>,
 
     /// The CertificateDetails account associated with the licence.
     /// Used to verify if the `revoker` has the correct authority.
-    /// We add a constraint to ensure the licence's certificate_details pubkey matches this account.
     #[account(
-        // Constraint to ensure the licence PDA maps to *this* certificate details account.
-        // This prevents revoking a licence using the wrong certificate's authority.
-        constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
-        // TODO: Add constraint to check owner is the certificate program ID once known.
-        // owner = creatorclaim_certificate::ID
+        // TODO: Add constraint to check owner is the certificate program ID once known and imported.
+        // owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() @ CreatorClaimLicenceError::CertificateMismatch,
+        // Ensure the key matches the one stored in the licence account (redundant due to above constraint but good practice).
+         constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
     )]
-    /// CHECK: For now, we only check the key constraint. Need to deserialize to check authority.
+    /// CHECK: Deserialization needed to check authority field against revoker.
     pub certificate_details: UncheckedAccount<'info>,
 }
 
