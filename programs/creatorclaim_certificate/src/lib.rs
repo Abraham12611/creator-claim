@@ -6,6 +6,19 @@ use state::*;
 
 declare_id!("CERTxxxxxxxxxxxxxxxxxx"); // Replace with actual Program ID after deploy
 
+// Define the program ID for use in constraints
+#[cfg(not(feature = "no-entrypoint"))]
+use solana_security_txt::security_txt;
+
+#[cfg(not(feature = "no-entrypoint"))]
+security_txt! {
+    name: "CreatorClaim Certificate Program",
+    project_url: "http://example.com", // TODO: Replace with actual URL
+    contacts: "email:security@example.com", // TODO: Replace with actual contact
+    policy: "https://example.com/security-policy", // TODO: Replace with actual URL
+    preferred_languages: "en"
+}
+
 #[program]
 pub mod creatorclaim_certificate {
     use super::*; // Make outer scope (state, errors) available
@@ -77,18 +90,22 @@ pub struct RegisterCertificate<'info> {
     /// Initialize the PDA account for certificate details.
     /// Seeds constraint ensures PDA is derived correctly.
     /// Space constraint ensures enough space is allocated.
+    /// Owner constraint ensures the account belongs to this program.
     #[account(
         init,
         payer = creator,
         space = CertificateDetails::LEN,
         seeds = [b"certificate_details", asset_id_or_mint_pk.key().as_ref()],
-        bump
+        bump,
+        owner = system_program.key() // Initial owner is system program for `init`
+        // After init, the owner will be this program's ID. Anchor handles the final owner check implicitly.
     )]
     pub certificate_details: Account<'info, CertificateDetails>,
 
     /// CHECK: This account solely provides a unique key for the PDA seed.
     /// It could be the mint account of the cNFT, or another unique identifier.
     /// No data is read from it, so no owner/data checks needed here.
+    /// Consider adding specific checks if assumptions change (e.g., checking it's a valid Mint account).
     pub asset_id_or_mint_pk: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
