@@ -47,22 +47,33 @@ pub mod creatorclaim_licence {
 
         let licence = &mut ctx.accounts.licence;
         let clock = Clock::get()?;
+        let buyer = &ctx.accounts.buyer;
+        let token_program = &ctx.accounts.token_program;
+        let buyer_token_account = &ctx.accounts.buyer_token_account;
+        let treasury_token_account = &ctx.accounts.treasury_token_account;
 
         // 1. TODO: Validate purchase_price against expected price from CertificateDetails/Template
+        //    - This would involve deserializing certificate_details account and checking a price field
+        //      or deriving price based on licence_template_id.
+        //    - Example: let cert_details_data = CertificateDetails::try_deserialize(&mut ctx.accounts.certificate_details.data.borrow())?;
+        //              require!(purchase_price == cert_details_data.price, LicenceError::IncorrectPrice);
 
-        // 2. TODO: Perform payment transfer (Buyer -> Escrow or directly to splits + treasury)
-        //    - This will likely involve CPI to the SPL Token program.
-        //    - If using Token-2022 Transfer Hook, the transfer itself triggers splits.
-        //    - If manual split, transfer to an escrow PDA then CPI to Token program multiple times.
-        // Example (Manual Transfer - Conceptual):
-        // let cpi_accounts = Transfer {
-        //     from: ctx.accounts.buyer_token_account.to_account_info(),
-        //     to: ctx.accounts.treasury_token_account.to_account_info(), // Placeholder - needs actual logic
-        //     authority: ctx.accounts.buyer.to_account_info(),
-        // };
-        // let cpi_program = ctx.accounts.token_program.to_account_info();
-        // let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
-        // token::transfer(cpi_ctx, purchase_price)?;
+        // 2. Perform payment transfer (Buyer -> Treasury - Placeholder for now)
+        //    In the final version, this transfer will trigger the Token-2022 Transfer Hook
+        //    or potentially transfer to an escrow before manual splitting.
+        msg!("Transferring {} tokens from buyer {} to treasury {}",
+             purchase_price, buyer_token_account.key(), treasury_token_account.key());
+
+        let cpi_accounts = Transfer {
+            from: buyer_token_account.to_account_info(),
+            to: treasury_token_account.to_account_info(), // Simple transfer to treasury for now
+            authority: buyer.to_account_info(), // Buyer authorizes the transfer from their account
+        };
+        let cpi_program = token_program.to_account_info();
+        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
+
+        token::transfer(cpi_ctx, purchase_price)?;
+        msg!("Transfer complete.");
 
         // 3. Populate the Licence PDA data
         licence.certificate_details = ctx.accounts.certificate_details.key();
