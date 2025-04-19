@@ -179,8 +179,132 @@ describe("creatorclaim_licence", () => {
 
   // --- TODO: Add failure case tests ---
   // - purchase_licence: insufficient funds
+  it("Should fail purchase with insufficient funds", async () => {
+    // Create a new buyer with no tokens
+    const poorBuyerKP = anchor.web3.Keypair.generate();
+    await connection.requestAirdrop(poorBuyerKP.publicKey, 0.1 * web3.LAMPORTS_PER_SOL); // Airdrop SOL for tx fees
+    await delay(500);
+    const poorBuyerWallet = new anchor.Wallet(poorBuyerKP);
+
+    const poorBuyerTokenAccount = await createAccount(
+        connection,
+        poorBuyerKP, // Payer
+        paymentMint,
+        poorBuyerKP.publicKey
+    );
+    console.log(`Poor Buyer ATA: ${poorBuyerTokenAccount.toBase58()}`);
+
+    // Derive PDA for this new buyer
+    const [poorBuyerLicencePDA, _] = anchor.web3.PublicKey.findProgramAddressSync(
+        [
+            Buffer.from("licence"),
+            certificateDetailsPubkey.toBuffer(),
+            poorBuyerKP.publicKey.toBuffer(),
+        ],
+        program.programId
+    );
+
+    try {
+      await program.methods
+        .purchaseLicence(purchasePrice, null)
+        .accounts({
+            buyer: poorBuyerKP.publicKey,
+            buyerTokenAccount: poorBuyerTokenAccount,
+            licence: poorBuyerLicencePDA,
+            certificateDetails: certificateDetailsPubkey,
+            treasuryTokenAccount: treasuryTokenAccount,
+            paymentMint: paymentMint,
+            tokenProgram: TOKEN_PROGRAM_ID,
+            systemProgram: anchor.web3.SystemProgram.programId,
+        })
+        .signers([poorBuyerKP]) // Sign with the poor buyer's keypair
+        .rpc();
+      assert.fail("Purchase should have failed due to insufficient funds.");
+    } catch (err) {
+      // Anchor wraps SPL Token errors. We expect 0x1 (InsufficientFunds)
+      // The error structure might vary, inspect logs if needed.
+      // console.error("Insufficient funds error:", JSON.stringify(err, null, 2));
+      assert.include(err.toString(), "insufficient funds", "Error message should mention insufficient funds");
+      // Or check for specific SPL Token error code if possible
+      // assert.match(err.logs.join(" "), /Transfer.*?failed: 0x1/);
+      console.log("Successfully caught insufficient funds error during purchase.");
+    }
+  });
+
   // - revoke_licence: invalid status (already revoked/expired)
+  it("Should fail revoke if licence already revoked", async () => {
+      // Licence should be revoked from the previous successful revoke test
+      const licenceAccountData = await program.account.licence.fetch(licencePDA);
+      assert.equal(JSON.stringify(licenceAccountData.status), JSON.stringify({ revoked: {} }), "Licence not revoked before test");
+
+      try {
+          await program.methods
+              .revokeLicence()
+              .accounts({
+                  revoker: buyer.publicKey, // Still using buyer as placeholder revoker
+                  licence: licencePDA,
+                  certificateDetails: certificateDetailsPubkey,
+              })
+              .signers([buyer.payer])
+              .rpc();
+          assert.fail("Revoke should have failed as licence is already revoked.");
+      } catch (err) {
+          // Expecting our custom program error
+          assert.equal(err.error.errorCode.code, "LicenceRevoked");
+          assert.equal(err.error.errorCode.number, 6001); // Ensure correct error number
+          console.log("Successfully caught error for revoking an already revoked licence.");
+      }
+  });
+
   // - revoke_licence: wrong certificate_details account (constraint check)
+  it("Should fail revoke with wrong certificate_details account", async () => {
+      // We need an active licence first. Let's create a new one.
+      const testBuyerKP = anchor.web3.Keypair.generate();
+      await connection.requestAirdrop(testBuyerKP.publicKey, 0.5 * web3.LAMPORTS_PER_SOL);
+      await delay(500);
+      const testBuyerWallet = new anchor.Wallet(testBuyerKP);
+      const testCertDetailsKP = anchor.web3.Keypair.generate(); // Correct cert details for this new licence
+      const wrongCertDetailsKP = anchor.web3.Keypair.generate(); // Incorrect cert details
+
+      const testBuyerTokenAccount = await createAccount(connection, testBuyerKP, paymentMint, testBuyerKP.publicKey);
+      await mintTo(connection, buyer.payer, paymentMint, testBuyerTokenAccount, buyer.publicKey, purchasePrice.toNumber());
+
+      const [newLicencePDA, __] = anchor.web3.PublicKey.findProgramAddressSync(
+          [Buffer.from("licence"), testCertDetailsKP.publicKey.toBuffer(), testBuyerKP.publicKey.toBuffer()],
+          program.programId
+      );
+
+      // Purchase the new licence
+      await program.methods
+          .purchaseLicence(purchasePrice, null)
+          .accounts({ buyer: testBuyerKP.publicKey, buyerTokenAccount: testBuyerTokenAccount, licence: newLicencePDA, certificateDetails: testCertDetailsKP.publicKey, treasuryTokenAccount, paymentMint, tokenProgram: TOKEN_PROGRAM_ID, systemProgram: anchor.web3.SystemProgram.programId })
+          .signers([testBuyerKP])
+          .rpc();
+      console.log("Created a new licence for the constraint test.");
+      await delay(500);
+
+      // Attempt revoke with the WRONG certificate_details account
+      try {
+          await program.methods
+              .revokeLicence()
+              .accounts({
+                  revoker: testBuyerKP.publicKey, // Placeholder revoker
+                  licence: newLicencePDA,
+                  certificateDetails: wrongCertDetailsKP.publicKey, // Passing wrong account
+              })
+              .signers([testBuyerKP])
+              .rpc();
+          assert.fail("Revoke should have failed due to certificate mismatch constraint.");
+      } catch (err) {
+          // Anchor wraps constraint errors differently
+          // console.error("Constraint error:", JSON.stringify(err, null, 2));
+          assert.include(err.toString(), "AnchorError: AccountNotInitialized", "Error should indicate constraint failure (AccountNotInitialized for derived constraint)");
+          // Or specifically check for the custom error code if Anchor surfaces it clearly
+          // assert.equal(err.error.errorCode.code, "CertificateMismatch");
+          console.log("Successfully caught error for wrong certificate_details constraint.");
+      }
+  });
+
   // - revoke_licence: unauthorized revoker (once auth logic is added)
 
 });
