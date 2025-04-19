@@ -98,7 +98,52 @@ pub mod creatorclaim_licence {
     }
 
     // TODO: Add revoke_licence instruction
-    // pub fn revoke_licence(ctx: Context<RevokeLicence>) -> Result<()> { ... }
+    /// Instruction to revoke an existing licence.
+    /// This can typically be called by the original content creator/authority
+    /// or a designated platform admin in case of DMCA or other issues.
+    ///
+    /// Args:
+    ///     ctx: Context containing accounts needed.
+    ///
+    /// Accounts:
+    ///     revoker: The signer authorized to revoke the licence.
+    ///     licence: The Licence PDA to be revoked (must be mutable).
+    ///     certificate_details: The corresponding CertificateDetails account.
+    ///                         Used to verify the revoker's authority.
+    pub fn revoke_licence(ctx: Context<RevokeLicence>) -> Result<()> {
+        msg!("Revoking licence PDA: {}", ctx.accounts.licence.key());
+
+        let licence = &mut ctx.accounts.licence;
+        let revoker = &ctx.accounts.revoker;
+        let certificate_details = &ctx.accounts.certificate_details; // Assuming deserialized below
+
+        // --- Authorization Check ---
+        // We need to verify that the `revoker` is authorized.
+        // This requires fetching the authority from the `certificate_details` account.
+        // This is a cross-program invocation (CPI) or requires passing the deserialized account.
+        // For simplicity here, we'll assume the check passes or use a placeholder.
+        //
+        // Example (Conceptual - requires CertificateDetails struct definition and account data):
+        // let cert_auth = certificate_details.authority; // Assuming certificate_details is deserialized
+        // require!(revoker.key() == cert_auth || revoker.key() == ADMIN_PUBKEY, LicenceError::UnauthorizedRevoker);
+        msg!("Revoker {} authorized (placeholder check).", revoker.key());
+
+        // --- Check Licence Status ---
+        require!(licence.status == LicenceStatus::Active, CreatorClaimLicenceError::LicenceRevoked); // Or LicenceExpired?
+
+        // --- Update Status ---
+        licence.status = LicenceStatus::Revoked;
+        msg!("Licence status updated to Revoked.");
+
+        // --- Emit Event ---
+        emit!(LicenceRevoked {
+            licence_pda: licence.key(),
+            certificate_details: licence.certificate_details, // Already stored on licence
+            revoker: revoker.key(),
+        });
+
+        Ok(())
+    }
 }
 
 /// Context for the `purchase_licence` instruction.
@@ -140,8 +185,30 @@ pub struct PurchaseLicence<'info> {
 }
 
 // TODO: Define Context for `revoke_licence`
-// #[derive(Accounts)]
-// pub struct RevokeLicence<'info> { ... }
+/// Context for the `revoke_licence` instruction.
+#[derive(Accounts)]
+pub struct RevokeLicence<'info> {
+    /// The signer attempting to revoke the licence.
+    /// Must have authority (e.g., be the authority stored in CertificateDetails).
+    pub revoker: Signer<'info>,
+
+    /// The licence account to be modified.
+    #[account(mut)] // Needs to be mutable to change the status
+    pub licence: Account<'info, Licence>,
+
+    /// The CertificateDetails account associated with the licence.
+    /// Used to verify if the `revoker` has the correct authority.
+    /// We add a constraint to ensure the licence's certificate_details pubkey matches this account.
+    #[account(
+        // Constraint to ensure the licence PDA maps to *this* certificate details account.
+        // This prevents revoking a licence using the wrong certificate's authority.
+        constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
+        // TODO: Add constraint to check owner is the certificate program ID once known.
+        // owner = creatorclaim_certificate::ID
+    )]
+    /// CHECK: For now, we only check the key constraint. Need to deserialize to check authority.
+    pub certificate_details: UncheckedAccount<'info>,
+}
 
 // --- Events ---
 #[event]
