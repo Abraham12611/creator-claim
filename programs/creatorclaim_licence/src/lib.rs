@@ -1,18 +1,18 @@
 use anchor_lang::prelude::*;
 use anchor_spl::token::{self, Mint, Token, TokenAccount, Transfer};
+use anchor_spl::token_2022::{self, Mint as Token2022Mint, Token as Token2022Token, TokenAccount as Token2022TokenAccount, Transfer as Token2022Transfer};
+use spl_token_2022::ID as TOKEN_2022_PROGRAM_ID;
 
 // Make state and errors available
 mod state;
 use state::*;
 
-// Import the certificate program ID to check ownership (replace with actual ID)
-// This requires the certificate program crate to be a dependency in Cargo.toml
-// and correctly declared in Anchor.toml [programs.cluster]
-// use creatorclaim_certificate;
+// Import the certificate program crate and its state
+// Requires adding `creatorclaim_certificate = { path = "../creatorclaim_certificate", features = ["cpi"] }` to Cargo.toml
+// and adding the program declaration to Anchor.toml
+use creatorclaim_certificate::state::CertificateDetails;
 
 // Placeholder for actual Certificate Program ID
-// In a real setup, this would likely be imported or defined globally.
-// declare_id!("CERTxxxxxxxxxxxxxxxxxx"); // Example ID for certificate program
 const CERTIFICATE_PROGRAM_ID: &str = "CERTxxxxxxxxxxxxxxxxxx";
 
 declare_id!("LICxxxxxxxxxxxxxxxxxx"); // Replace with actual Program ID after deploy
@@ -33,27 +33,28 @@ security_txt! {
 pub mod creatorclaim_licence {
     use super::*;
 
-    /// Instruction to purchase a licence for a creative work.
-    /// This creates the Licence PDA, transfers payment (USDC), and triggers royalty distribution.
+    /// Instruction to purchase a licence for a creative work using Token-2022.
+    /// This creates the Licence PDA, transfers payment (USDC via Token-242),
+    /// and relies on the Token-2022 Transfer Fee extension (transfer hook)
+    /// to automatically distribute royalties based on the mint's configuration.
     ///
     /// Args:
     ///     ctx: Context containing accounts needed.
-    ///     purchase_price: The agreed price (should match expected price based on template/certificate).
+    ///     purchase_price: The total price including royalties and platform fee.
     ///     expiry_timestamp: Optional expiry for time-limited licences.
     ///
     /// Accounts:
-    ///     buyer: The signer purchasing the licence, pays for account rent and fees.
-    ///     buyer_token_account: The buyer's token account (USDC) to pay from.
+    ///     buyer: The signer purchasing the licence.
+    ///     buyer_token_account: The buyer's Token-2022 account to pay from.
     ///     licence: The Licence PDA to be initialized.
-    ///         Seeds: ["licence", certificate_details.key().as_ref(), buyer.key().as_ref()]
     ///     certificate_details: The CertificateDetails account for the work being licensed.
-    ///                        Used for PDA seed and potentially validation.
-    ///     treasury_token_account: The platform's treasury account (USDC) to receive fees.
-    ///     payment_mint: The mint address of the payment token (e.g., USDC).
-    ///     token_program: SPL Token program.
-    ///     system_program: System program for account creation.
-    ///     // TODO: Add accounts for royalty recipients' token accounts
-    ///     // TODO: Add account for the Royalty Router program (if using Token-2022 Transfer Hook, might be different)
+    ///     payment_mint: The Token-2022 mint address configured with the Transfer Fee extension.
+    ///     token_program: The Token-2022 Program.
+    ///     system_program: System program.
+    ///     remaining_accounts: Must include all token accounts that will receive fees
+    ///                         (royalty recipients, platform treasury) as specified in the
+    ///                         Transfer Fee extension config on the `payment_mint`.
+    ///                         These are required by the transfer hook.
     pub fn purchase_licence(
         ctx: Context<PurchaseLicence>,
         purchase_price: u64,
@@ -67,30 +68,69 @@ pub mod creatorclaim_licence {
         let buyer = &ctx.accounts.buyer;
         let token_program = &ctx.accounts.token_program;
         let buyer_token_account = &ctx.accounts.buyer_token_account;
-        let treasury_token_account = &ctx.accounts.treasury_token_account;
+        let certificate_details_account_info = &ctx.accounts.certificate_details;
 
-        // 1. TODO: Validate purchase_price against expected price from CertificateDetails/Template
-        //    - This would involve deserializing certificate_details account and checking a price field
-        //      or deriving price based on licence_template_id.
-        //    - Example: let cert_details_data = CertificateDetails::try_deserialize(&mut ctx.accounts.certificate_details.data.borrow())?;
-        //              require!(purchase_price == cert_details_data.price, LicenceError::IncorrectPrice);
+        // 1. Validate purchase_price against expected price
+        // Ensure the provided certificate_details account is owned by the correct program
+        // Note: Anchor performs basic owner check if using Account<'info, CertificateDetails>,
+        // but since we might use UncheckedAccount or need more checks, manual validation is safer.
+        require_keys_eq!(
+            certificate_details_account_info.owner.key(),
+            CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap(), // TODO: Handle parse error gracefully
+            CreatorClaimLicenceError::CertificateMismatch // Reuse error or add specific one
+        );
 
-        // 2. Perform payment transfer (Buyer -> Treasury - Placeholder for now)
-        //    In the final version, this transfer will trigger the Token-2022 Transfer Hook
-        //    or potentially transfer to an escrow before manual splitting.
-        msg!("Transferring {} tokens from buyer {} to treasury {}",
-             purchase_price, buyer_token_account.key(), treasury_token_account.key());
+        // Load the certificate details data
+        // Using AccountLoader for efficiency if state is large, or direct deserialization
+        let cert_details_data = Account::<CertificateDetails>::try_from(certificate_details_account_info)?;
 
-        let cpi_accounts = Transfer {
+        // --- Price determination logic ---
+        // TODO: Replace this placeholder with actual price lookup logic.
+        // This might involve:
+        //   a) A direct `price` field on CertificateDetails.
+        //   b) A lookup based on `cert_details_data.licence_template_id`.
+        let expected_price = 100 * 10**6; // Placeholder: e.g., 100 USDC
+        msg!("Expected price (placeholder): {}", expected_price);
+        // --- End Price determination ---
+
+        require!(purchase_price == expected_price, CreatorClaimLicenceError::IncorrectPrice);
+        msg!("Purchase price validated.");
+
+        // 2. Perform payment transfer using Token-2022
+        //    The standard `transfer` CPI is used. The Token-2022 program's transfer hook,
+        //    configured on the mint (Transfer Fee extension), intercepts this call.
+        //    It automatically deducts fees based on the mint's config and transfers them
+        //    to the accounts provided in ctx.remaining_accounts.
+        //    The remaining amount is transferred to the primary destination account
+        //    (which needs to be determined - often a central escrow or the first recipient).
+        //    For simplicity, we might initially transfer to a placeholder or treasury,
+        //    assuming the hook handles the *actual* distribution.
+        msg!("Initiating Token-2022 transfer of {} tokens from buyer {}.",
+             purchase_price, buyer_token_account.key());
+        msg!("Transfer hook expected to distribute fees to accounts in remaining_accounts.");
+
+        // *** Crucial: The recipient account (`to`) in this primary transfer matters. ***
+        // It receives the amount *after* fees are deducted by the hook.
+        // This should likely be a designated recipient or escrow account.
+        // For now, using a placeholder recipient from remaining_accounts if available,
+        // otherwise erroring or using treasury. THIS NEEDS FINAL DESIGN.
+        let primary_recipient_account_info = ctx.remaining_accounts.get(0)
+            .ok_or_else(|| CreatorClaimLicenceError::MissingRecipientAccount)?;
+        // TODO: Add validation that this primary_recipient is a valid TokenAccount
+
+        let transfer_instruction = Transfer {
             from: buyer_token_account.to_account_info(),
-            to: treasury_token_account.to_account_info(), // Simple transfer to treasury for now
-            authority: buyer.to_account_info(), // Buyer authorizes the transfer from their account
+            to: primary_recipient_account_info.to_account_info(), // Receives amount AFTER fees
+            authority: buyer.to_account_info(),
         };
-        let cpi_program = token_program.to_account_info();
-        let cpi_ctx = CpiContext::new(cpi_program, cpi_accounts);
 
-        token::transfer(cpi_ctx, purchase_price)?;
-        msg!("Transfer complete.");
+        // IMPORTANT: Pass ALL recipient accounts from remaining_accounts to the CPI context.
+        // The transfer hook requires them.
+        let mut cpi_ctx = CpiContext::new(token_program.to_account_info(), transfer_instruction);
+        cpi_ctx = cpi_ctx.with_remaining_accounts(ctx.remaining_accounts.to_vec());
+
+        token_2022::transfer(cpi_ctx, purchase_price)?;
+        msg!("Token-2022 transfer initiated successfully. Hook should have processed fees.");
 
         // 3. Populate the Licence PDA data
         licence.certificate_details = ctx.accounts.certificate_details.key();
@@ -163,7 +203,7 @@ pub mod creatorclaim_licence {
     }
 }
 
-/// Context for the `purchase_licence` instruction.
+/// Context for the `purchase_licence` instruction (Updated for Token-2022).
 #[derive(Accounts)]
 #[instruction(purchase_price: u64, expiry_timestamp: Option<i64>)]
 pub struct PurchaseLicence<'info> {
@@ -171,9 +211,7 @@ pub struct PurchaseLicence<'info> {
     pub buyer: Signer<'info>,
 
     #[account(mut,
-        // Ensure the buyer token account is owned by the token program
-        token::program = token_program,
-        // Optional: Ensure it's for the correct mint (USDC)
+        token::program = token_program, // Use Token-2022 program ID
         token::mint = payment_mint
     )]
     pub buyer_token_account: Account<'info, TokenAccount>,
@@ -190,27 +228,24 @@ pub struct PurchaseLicence<'info> {
     )]
     pub licence: Account<'info, Licence>,
 
-    /// CHECK: We use the key for PDA derivation. Could add constraints later
-    /// like checking owner is the certificate program ID.
-    /// #[account(owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap())] // Example owner check
-    pub certificate_details: UncheckedAccount<'info>, // Links to the specific work being licensed
-
-    #[account(mut,
-        // Ensure the treasury token account is owned by the token program
-        token::program = token_program,
-        // Optional: Ensure it's for the correct mint (USDC)
-        token::mint = payment_mint
+    /// Certificate Details account. Need its data to validate price.
+    #[account(
+        // Ensure owner is the certificate program
+        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() // TODO: Handle parse error
     )]
-    pub treasury_token_account: Account<'info, TokenAccount>,
+    pub certificate_details: Account<'info, CertificateDetails>,
 
-    // TODO: Add remaining accounts for royalty recipients
-    // Example: #[account(mut)] pub royalty_recipient_1_token_account: Account<'info, TokenAccount>,
-    // These might need to be passed in ctx.remaining_accounts depending on design.
+    /// The Token-2022 Mint configured with the Transfer Fee extension.
+    #[account(token::program = token_program)] // Check ownership by Token-2022
+    pub payment_mint: Account<'info, Mint>,
 
-    #[account(token::program = token_program)] // Ensure mint is owned by token program
-    pub payment_mint: Account<'info, Mint>, // e.g., USDC mint
+    /// The Token-2022 Program itself.
+    #[account(address = TOKEN_2022_PROGRAM_ID)]
     pub token_program: Program<'info, Token>,
     pub system_program: Program<'info, System>,
+
+    // Royalty recipient accounts, treasury account, etc., must be passed
+    // in ctx.remaining_accounts in the order expected by the transfer hook.
 }
 
 /// Context for the `revoke_licence` instruction.
@@ -255,4 +290,14 @@ pub struct LicenceRevoked {
     pub licence_pda: Pubkey,
     pub certificate_details: Pubkey,
     pub revoker: Pubkey, // Who triggered the revoke (admin or creator)
+}
+
+// Add new error for missing recipient account
+#[error_code]
+pub enum CreatorClaimLicenceError {
+    // ... (existing errors) ...
+    #[msg("Primary recipient account missing from remaining_accounts.")]
+    MissingRecipientAccount,
+    #[msg("Incorrect purchase price provided.")]
+    IncorrectPrice,
 }
