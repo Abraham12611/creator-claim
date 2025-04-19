@@ -172,18 +172,18 @@ pub mod creatorclaim_licence {
 
         let licence = &mut ctx.accounts.licence;
         let revoker = &ctx.accounts.revoker;
-        let certificate_details = &ctx.accounts.certificate_details; // Assuming deserialized below
+        // Load the CertificateDetails account data via the context
+        let cert_details_data = &ctx.accounts.certificate_details;
 
         // --- Authorization Check ---
-        // We need to verify that the `revoker` is authorized.
-        // This requires fetching the authority from the `certificate_details` account.
-        // This is a cross-program invocation (CPI) or requires passing the deserialized account.
-        // For simplicity here, we'll assume the check passes or use a placeholder.
-        //
-        // Example (Conceptual - requires CertificateDetails struct definition and account data):
-        // let cert_auth = certificate_details.authority; // Assuming certificate_details is deserialized
-        // require!(revoker.key() == cert_auth || revoker.key() == ADMIN_PUBKEY, LicenceError::UnauthorizedRevoker);
-        msg!("Revoker {} authorized (placeholder check).", revoker.key());
+        // Verify that the `revoker` signer is the authority listed in the CertificateDetails.
+        // TODO: Add check for platform admin key if needed: || revoker.key() == ADMIN_PUBKEY
+        require_keys_eq!(
+            revoker.key(),
+            cert_details_data.authority,
+            CreatorClaimLicenceError::UnauthorizedRevoker
+        );
+        msg!("Revoker {} authorized.", revoker.key());
 
         // --- Check Licence Status ---
         require!(licence.status == LicenceStatus::Active, CreatorClaimLicenceError::LicenceRevoked); // Or LicenceExpired?
@@ -256,9 +256,7 @@ pub struct RevokeLicence<'info> {
     pub revoker: Signer<'info>,
 
     /// The licence account to be modified.
-    /// Ensure it's owned by this program (implicit check via Account type).
     #[account(mut,
-        // Constraint to ensure this licence belongs to the provided certificate_details key
         constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
     )]
     pub licence: Account<'info, Licence>,
@@ -266,13 +264,13 @@ pub struct RevokeLicence<'info> {
     /// The CertificateDetails account associated with the licence.
     /// Used to verify if the `revoker` has the correct authority.
     #[account(
-        // TODO: Add constraint to check owner is the certificate program ID once known and imported.
-        // owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() @ CreatorClaimLicenceError::CertificateMismatch,
-        // Ensure the key matches the one stored in the licence account (redundant due to above constraint but good practice).
-         constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
+        // Ensure owner is the certificate program
+        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() @ CreatorClaimLicenceError::CertificateMismatch, // TODO: Handle parse error
+        // Ensure the key matches the one stored in the licence account (constraint is technically redundant due to above but safe).
+        constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
     )]
-    /// CHECK: Deserialization needed to check authority field against revoker.
-    pub certificate_details: UncheckedAccount<'info>,
+    // Load the account data to access the authority field.
+    pub certificate_details: Account<'info, CertificateDetails>,
 }
 
 // --- Events ---
@@ -300,4 +298,6 @@ pub enum CreatorClaimLicenceError {
     MissingRecipientAccount,
     #[msg("Incorrect purchase price provided.")]
     IncorrectPrice,
+    #[msg("Signer is not authorized to revoke this licence.")]
+    UnauthorizedRevoker,
 }
