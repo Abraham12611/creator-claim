@@ -14,6 +14,8 @@ use creatorclaim_certificate::state::CertificateDetails;
 
 // Placeholder for actual Certificate Program ID
 const CERTIFICATE_PROGRAM_ID: &str = "CERTxxxxxxxxxxxxxxxxxx";
+// Placeholder for potential Admin Pubkey
+const ADMIN_PUBKEY: &str = "Adm1xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"; // Replace with actual Admin Pubkey
 
 declare_id!("LICxxxxxxxxxxxxxxxxxx"); // Replace with actual Program ID after deploy
 
@@ -72,12 +74,10 @@ pub mod creatorclaim_licence {
 
         // 1. Validate purchase_price against expected price
         // Ensure the provided certificate_details account is owned by the correct program
-        // Note: Anchor performs basic owner check if using Account<'info, CertificateDetails>,
-        // but since we might use UncheckedAccount or need more checks, manual validation is safer.
         require_keys_eq!(
             certificate_details_account_info.owner.key(),
-            CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap(), // TODO: Handle parse error gracefully
-            CreatorClaimLicenceError::CertificateMismatch // Reuse error or add specific one
+            CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().expect("Invalid Certificate Program ID constant"),
+            CreatorClaimLicenceError::CertificateMismatch
         );
 
         // Load the certificate details data
@@ -116,11 +116,14 @@ pub mod creatorclaim_licence {
         // otherwise erroring or using treasury. THIS NEEDS FINAL DESIGN.
         let primary_recipient_account_info = ctx.remaining_accounts.get(0)
             .ok_or_else(|| CreatorClaimLicenceError::MissingRecipientAccount)?;
-        // TODO: Add validation that this primary_recipient is a valid TokenAccount
+        // Basic validation: Ensure recipient is not the zero address or burner address
+        // More robust checks might involve ensuring it's initialized/owned by Token-2022.
+        require!(primary_recipient_account_info.key() != Pubkey::default(), CreatorClaimLicenceError::InvalidRecipientAccount);
+        msg!("Primary recipient account validated (basic check): {}", primary_recipient_account_info.key());
 
         let transfer_instruction = Transfer {
             from: buyer_token_account.to_account_info(),
-            to: primary_recipient_account_info.to_account_info(), // Receives amount AFTER fees
+            to: primary_recipient_account_info.to_account_info(),
             authority: buyer.to_account_info(),
         };
 
@@ -176,14 +179,13 @@ pub mod creatorclaim_licence {
         let cert_details_data = &ctx.accounts.certificate_details;
 
         // --- Authorization Check ---
-        // Verify that the `revoker` signer is the authority listed in the CertificateDetails.
-        // TODO: Add check for platform admin key if needed: || revoker.key() == ADMIN_PUBKEY
-        require_keys_eq!(
-            revoker.key(),
-            cert_details_data.authority,
-            CreatorClaimLicenceError::UnauthorizedRevoker
-        );
-        msg!("Revoker {} authorized.", revoker.key());
+        let is_authority = revoker.key() == cert_details_data.authority;
+        // Allow if revoker is the certificate authority OR the designated admin
+        let admin_pubkey = ADMIN_PUBKEY.parse::<Pubkey>().expect("Invalid Admin Pubkey constant");
+        let is_admin = revoker.key() == admin_pubkey;
+
+        require!(is_authority || is_admin, CreatorClaimLicenceError::UnauthorizedRevoker);
+        msg!("Revoker {} authorized (is_authority: {}, is_admin: {}).", revoker.key(), is_authority, is_admin);
 
         // --- Check Licence Status ---
         require!(licence.status == LicenceStatus::Active, CreatorClaimLicenceError::LicenceRevoked); // Or LicenceExpired?
@@ -230,8 +232,7 @@ pub struct PurchaseLicence<'info> {
 
     /// Certificate Details account. Need its data to validate price.
     #[account(
-        // Ensure owner is the certificate program
-        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() // TODO: Handle parse error
+        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().expect("Invalid Certificate Program ID constant")
     )]
     pub certificate_details: Account<'info, CertificateDetails>,
 
@@ -264,9 +265,7 @@ pub struct RevokeLicence<'info> {
     /// The CertificateDetails account associated with the licence.
     /// Used to verify if the `revoker` has the correct authority.
     #[account(
-        // Ensure owner is the certificate program
-        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().unwrap() @ CreatorClaimLicenceError::CertificateMismatch, // TODO: Handle parse error
-        // Ensure the key matches the one stored in the licence account (constraint is technically redundant due to above but safe).
+        owner = CERTIFICATE_PROGRAM_ID.parse::<Pubkey>().expect("Invalid Certificate Program ID constant"),
         constraint = licence.certificate_details == certificate_details.key() @ CreatorClaimLicenceError::CertificateMismatch
     )]
     // Load the account data to access the authority field.
@@ -300,4 +299,6 @@ pub enum CreatorClaimLicenceError {
     IncorrectPrice,
     #[msg("Signer is not authorized to revoke this licence.")]
     UnauthorizedRevoker,
+    #[msg("Invalid primary recipient account provided.")]
+    InvalidRecipientAccount,
 }
