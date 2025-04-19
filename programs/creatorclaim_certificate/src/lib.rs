@@ -103,9 +103,14 @@ pub struct RegisterCertificate<'info> {
     pub certificate_details: Account<'info, CertificateDetails>,
 
     /// CHECK: This account solely provides a unique key for the PDA seed.
-    /// It could be the mint account of the cNFT, or another unique identifier.
-    /// No data is read from it, so no owner/data checks needed here.
-    /// Consider adding specific checks if assumptions change (e.g., checking it's a valid Mint account).
+    /// The key of this account is used as a seed for the `certificate_details` PDA.
+    /// It MUST be a unique identifier for the creative work (e.g., the cNFT mint address).
+    /// No data is read or written from this account within this instruction,
+    /// and no ownership or type checks are performed here.
+    /// Assumption: The caller provides the correct, unique public key representing the asset.
+    /// Risk: If a non-unique key is provided, it could lead to PDA collisions or incorrect association.
+    /// Future Enhancement: If needed, add constraints here to verify it's a valid Mint address
+    /// owned by the appropriate token/NFT program, but this increases complexity.
     pub asset_id_or_mint_pk: UncheckedAccount<'info>,
 
     pub system_program: Program<'info, System>,
