@@ -1,10 +1,11 @@
 // Simple Express server for handling metadata uploads
 // Requires: npm install express multer @types/express @types/multer
 
-const express = require('express');
-const multer = require('multer');
-const { uploadFile } = require('./uploader');
-const crypto = require('crypto');
+import express, { Request, Response, NextFunction } from 'express';
+import multer from 'multer';
+import { uploadFile } from './uploader';
+import { createHash } from 'node:crypto'; // Use node:crypto for explicit Node.js module
+import { Buffer } from 'node:buffer';
 
 const app = express();
 const port = process.env.PORT || 3001; // Port for the metadata service
@@ -22,13 +23,14 @@ app.use(express.json());
 // --- Routes ---
 
 // Health check route
-app.get('/health', (req: any, res: any) => {
+app.get('/health', (req: Request, res: Response) => {
     res.status(200).send('OK');
 });
 
 // File upload route
 // Expects a single file upload with the field name 'assetFile'
-app.post('/upload', upload.single('assetFile'), async (req: any, res: any) => {
+app.post('/upload', upload.single('assetFile'), async (req: Request, res: Response, next: NextFunction) => {
+    // Check if req.file exists (Multer adds file info to req)
     if (!req.file) {
         return res.status(400).send({ error: 'No file uploaded.' });
     }
@@ -48,19 +50,17 @@ app.post('/upload', upload.single('assetFile'), async (req: any, res: any) => {
         const metadataUri = `ar://${storageIdentifier}`; // Example for Arweave
         // const metadataUri = `ipfs://${storageIdentifier}`; // Example for IPFS
 
-        // 3. Calculate SHA-256 hash of the metadata URI string
-        const hash = crypto.createHash('sha256');
+        // 3. Calculate SHA-256 hash of the metadata URI string using node:crypto
+        const hash = createHash('sha256');
         hash.update(metadataUri);
-        const metadataUriHash = hash.digest('hex'); // Use hex for easier representation? Or buffer?
-         // Convert hex hash to byte array ([u8; 32]) expected by the program
-         // Note: Ensure the program expects the hash of the *URI string*, not the file content.
-         const metadataUriHashBytes = Buffer.from(metadataUriHash, 'hex');
-         if (metadataUriHashBytes.length !== 32) {
-             throw new Error('Generated hash is not 32 bytes long!');
-         }
+        const metadataUriHashHex = hash.digest('hex');
+        const metadataUriHashBytes = Buffer.from(metadataUriHashHex, 'hex');
 
+        if (metadataUriHashBytes.length !== 32) {
+            throw new Error('Generated hash is not 32 bytes long!');
+        }
 
-        console.log(`[Server] File uploaded. Identifier: ${storageIdentifier}, URI: ${metadataUri}, URI Hash: ${metadataUriHash}`);
+        console.log(`[Server] File uploaded. Identifier: ${storageIdentifier}, URI: ${metadataUri}, URI Hash: ${metadataUriHashHex}`);
 
         // 4. Return the identifier, URI, and hash to the client
         res.status(200).send({
@@ -71,8 +71,17 @@ app.post('/upload', upload.single('assetFile'), async (req: any, res: any) => {
 
     } catch (error: any) {
         console.error("[Server] Error processing upload:", error);
-        res.status(500).send({ error: error.message || 'Failed to process file upload.' });
+        // Pass error to a generic error handler (best practice)
+        next(error);
     }
+});
+
+// --- Generic Error Handler ---
+app.use((err: any, req: Request, res: Response, next: NextFunction) => {
+    console.error("[Server] Unhandled Error:", err.stack || err);
+    res.status(err.status || 500).send({
+        error: err.message || 'Internal Server Error'
+    });
 });
 
 // --- Start Server ---
