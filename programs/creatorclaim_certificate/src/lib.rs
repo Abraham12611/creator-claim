@@ -30,6 +30,7 @@ pub mod creatorclaim_certificate {
     ///     ctx: Context containing accounts needed for the instruction.
     ///     metadata_uri_hash: The SHA-256 hash of the off-chain metadata URI.
     ///     licence_template_id: The ID of the licence template.
+    ///     price: The price required to purchase a licence (e.g., in USDC cents).
     ///     royalty_splits: The vector defining royalty distribution.
     ///
     /// Accounts:
@@ -45,6 +46,7 @@ pub mod creatorclaim_certificate {
         ctx: Context<RegisterCertificate>,
         metadata_uri_hash: [u8; 32],
         licence_template_id: u16,
+        price: u64,
         royalty_splits: Vec<RoyaltySplit>,
     ) -> Result<()> {
 
@@ -53,6 +55,7 @@ pub mod creatorclaim_certificate {
             metadata_uri_hash != [0u8; 32],
             CreatorClaimCertificateError::MissingMetadataHash
         );
+        require!(price > 0, CreatorClaimCertificateError::ZeroPriceNotAllowed);
         CertificateDetails::validate_splits(&royalty_splits)?;
 
         // Get the certificate_details account from the context
@@ -62,6 +65,7 @@ pub mod creatorclaim_certificate {
         certificate_details.authority = ctx.accounts.creator.key();
         certificate_details.metadata_uri_hash = metadata_uri_hash;
         certificate_details.licence_template_id = licence_template_id;
+        certificate_details.price = price;
         certificate_details.royalty_splits = royalty_splits;
         certificate_details.bump = ctx.bumps.certificate_details; // Anchor automatically gets bump
 
@@ -70,6 +74,7 @@ pub mod creatorclaim_certificate {
             asset_id: ctx.accounts.asset_id_or_mint_pk.key(),
             creator: ctx.accounts.creator.key(),
             licence_template_id,
+            price,
         });
 
         Ok(())
@@ -82,7 +87,7 @@ pub mod creatorclaim_certificate {
 
 /// Context for the `register_certificate` instruction.
 #[derive(Accounts)]
-#[instruction(metadata_uri_hash: [u8; 32], licence_template_id: u16, royalty_splits: Vec<RoyaltySplit>)]
+#[instruction(metadata_uri_hash: [u8; 32], licence_template_id: u16, price: u64, royalty_splits: Vec<RoyaltySplit>)]
 pub struct RegisterCertificate<'info> {
     #[account(mut)]
     pub creator: Signer<'info>,
@@ -122,5 +127,13 @@ pub struct NewCertificateRegistered {
     pub asset_id: Pubkey,           // The unique identifier (e.g., cNFT mint)
     pub creator: Pubkey,
     pub licence_template_id: u16,
+    pub price: u64,
     // Consider adding metadata_uri_hash if useful for off-chain indexers
+}
+
+// Add new error code
+#[error_code]
+pub enum CreatorClaimCertificateError {
+    #[msg("Price cannot be zero.")]
+    ZeroPriceNotAllowed,
 }
