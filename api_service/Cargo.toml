@@ -1,0 +1,22 @@
+[package]
+name = "api_service"
+version = "0.1.0"
+edition = "2021"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = { version = "1", features = ["full"] } # Async runtime
+axum = "0.7" # Web framework
+serde = { version = "1.0", features = ["derive"] } # Serialization/Deserialization
+serde_json = "1.0"
+dotenvy = "0.15" # Load .env files
+sqlx = { version = "0.7", features = [ "runtime-tokio", "postgres", "uuid", "chrono", "json", "decimal" ] } # SQL toolkit
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+thiserror = "1.0"
+uuid = { version = "1", features = ["v4", "serde"] } # UUID generation
+chrono = { version = "0.4", features = ["serde"] } # Timestamps
+
+[dev-dependencies]
+# Add test dependencies later if needed
