@@ -26,7 +26,7 @@ pub async fn create_pool() -> Result<DbPool, SqlxError> {
     Ok(Arc::new(pool))
 }
 
-// --- Placeholder Database Query Functions --- 
+// --- Placeholder Database Query Functions ---
 
 // Example function to fetch certificates
 pub async fn get_certificates(pool: &DbPool, limit: i64, offset: i64) -> Result<Vec<serde_json::Value>, SqlxError> {
@@ -51,4 +51,36 @@ pub async fn get_certificate_by_id(pool: &DbPool, asset_id: &str) -> Result<Opti
     Ok(row)
 }
 
-// Add functions for fetching licences, etc. 
+// Add functions for fetching licences, etc.
+
+// Example function to fetch licences (e.g., for a specific buyer or certificate)
+pub async fn get_licences(
+    pool: &DbPool,
+    buyer_filter: Option<String>,
+    asset_filter: Option<String>,
+    limit: i64,
+    offset: i64
+) -> Result<Vec<serde_json::Value>, SqlxError> {
+    tracing::debug!(?buyer_filter, ?asset_filter, limit, offset, "Fetching licences from DB");
+    // TODO: Build query dynamically based on filters
+    let rows = sqlx::query_as::<_, serde_json::Value>(
+        "SELECT licence_pda, certificate_asset_id, buyer, status, purchase_timestamp FROM licences ORDER BY purchase_timestamp DESC LIMIT $1 OFFSET $2"
+    )
+        .bind(limit)
+        .bind(offset)
+        .fetch_all(pool.as_ref())
+        .await?;
+    Ok(rows)
+}
+
+// Example function to fetch a single licence by its PDA
+pub async fn get_licence_by_pda(pool: &DbPool, licence_pda: &str) -> Result<Option<serde_json::Value>, SqlxError> {
+    tracing::debug!(licence_pda, "Fetching licence by PDA from DB");
+    let row = sqlx::query_as::<_, serde_json::Value>(
+        "SELECT licence_pda, certificate_asset_id, buyer, status, purchase_timestamp, purchase_price, expiry_timestamp FROM licences WHERE licence_pda = $1"
+    )
+        .bind(licence_pda)
+        .fetch_optional(pool.as_ref())
+        .await?;
+    Ok(row)
+}
