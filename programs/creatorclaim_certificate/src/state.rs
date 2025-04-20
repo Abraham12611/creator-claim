@@ -22,8 +22,9 @@ pub struct RoyaltySplit {
 /// - Licence Template ID: 2 bytes (u16 allows for 65k templates)
 /// - Royalty Splits Vec Prefix: 4 bytes
 /// - Royalty Splits Data: MAX_RECIPIENTS * sizeof(RoyaltySplit) = 10 * 34 = 340 bytes
+/// - Price: 8 bytes (u64)
 /// - Bump: 1 byte
-/// Total ~ 8 + 32 + 32 + 2 + 4 + 340 + 1 = 419 bytes (well under 10 KiB limit)
+/// Total ~ 8 + 32 + 32 + 2 + 4 + 340 + 8 + 1 = 427 bytes
 #[account]
 #[derive(Debug)]
 pub struct CertificateDetails {
@@ -37,6 +38,8 @@ pub struct CertificateDetails {
     /// Array defining how royalties are split among recipients.
     /// Must sum to 10,000 bps at creation. Limited length for deterministic sizing.
     pub royalty_splits: Vec<RoyaltySplit>,
+    /// The price required to purchase a licence for this work (e.g., in USDC cents).
+    pub price: u64,
     /// Bump seed for the PDA.
     pub bump: u8,
 }
@@ -49,6 +52,7 @@ impl CertificateDetails {
         + 2 // licence_template_id (u16)
         + 4 // royalty_splits Vec prefix (u32)
         + (MAX_RECIPIENTS * (32 + 2)) // Max size for Vec<RoyaltySplit> data
+        + 8 // price (u64)
         + 1; // bump (u8)
 
     /// Validates that the royalty splits sum exactly to 10,000 bps
