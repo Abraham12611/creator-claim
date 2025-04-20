@@ -1,19 +1,17 @@
+import { Buffer } from 'node:buffer'; // Explicit import for Buffer
+
 // Placeholder for uploader logic (Arweave/IPFS/S3)
 
 // --- Arweave/Bundlr Configuration (Example) ---
-// Requires: npm install @bundlr-network/client
-// Needs environment variables for wallet and network
-// const Bundlr = require("@bundlr-network/client");
+// import Bundlr from "@bundlr-network/client";
 // const bundlr = new Bundlr("http://node1.bundlr.network", "solana", process.env.PAYER_WALLET_JSON);
 
 // --- IPFS Configuration (Example) ---
-// Requires: npm install ipfs-http-client
-// const { create } = require('ipfs-http-client');
+// import { create } from 'ipfs-http-client';
 // const ipfs = create({ url: process.env.IPFS_API_URL || '/ip4/127.0.0.1/tcp/5001' });
 
 // --- S3 Configuration (Example) ---
-// Requires: npm install @aws-sdk/client-s3
-// const { S3Client, PutObjectCommand } = require("@aws-sdk/client-s3");
+// import { S3Client, PutObjectCommand } from "@aws-sdk/client-s3";
 // const s3 = new S3Client({
 //     endpoint: process.env.S3_ENDPOINT,
 //     region: process.env.S3_REGION,
@@ -27,7 +25,7 @@
  * @param contentType The MIME type of the file.
  * @returns The content identifier (e.g., Arweave TX ID or IPFS CID).
  */
-async function uploadFile(fileBuffer: Buffer, contentType: string): Promise<string> {
+export async function uploadFile(fileBuffer: Buffer, contentType: string): Promise<string> {
     console.log(`[Uploader] Received file (${contentType}, ${fileBuffer.length} bytes). Uploading...`);
 
     // --- Placeholder Logic ---
@@ -96,7 +94,3 @@ async function cacheToS3(identifier: string, fileBuffer: Buffer, contentType: st
     //     // Don't throw error, caching is optional
     // }
 }
-
-module.exports = {
-    uploadFile,
-};
