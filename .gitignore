@@ -1,0 +1,40 @@
+# Rust/Cargo build artifacts
+/target/
+**/target/
+
+# Anchor specific
+/node_modules/
+/migrations/deploy.log
+/test-ledger/
+
+# Editor backups
+*.rs.bk
+*.swp
+*.swo
+
+# OS generated files
+.DS_Store
+
+# Logs
+*.log
+
+# IDE specific (optional, uncomment if needed)
+# .vscode/
+# .idea/
+
+# User requested ignores
+/extra/
+
+.cache/
+.cursor-server/
+.cursorrules/
+.cursorrules.md
+.cursorrules.txt
+.cursorrules.yaml
+.cursorrules.yml
+.bash_history
+.bashrc
+.ssh/
+.profile
+.wget-hsts
+.gitconfig
