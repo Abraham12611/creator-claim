@@ -85,12 +85,9 @@ pub mod creatorclaim_licence {
         let cert_details_data = Account::<CertificateDetails>::try_from(certificate_details_account_info)?;
 
         // --- Price determination logic ---
-        // TODO: Replace this placeholder with actual price lookup logic.
-        // This might involve:
-        //   a) A direct `price` field on CertificateDetails.
-        //   b) A lookup based on `cert_details_data.licence_template_id`.
-        let expected_price = 100 * 10**6; // Placeholder: e.g., 100 USDC
-        msg!("Expected price (placeholder): {}", expected_price);
+        // Read the expected price directly from the CertificateDetails account.
+        let expected_price = cert_details_data.price;
+        msg!("Expected price from certificate details: {}", expected_price);
         // --- End Price determination ---
 
         require!(purchase_price == expected_price, CreatorClaimLicenceError::IncorrectPrice);
