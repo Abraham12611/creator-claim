@@ -2,12 +2,15 @@ use axum::{
     extract::{State, Path, Query},
     http::StatusCode,
     response::Json,
-    routing::get,
+    routing::{get, post},
+    middleware,
     Router,
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use super::db::{DbPool, get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda}; // Assuming db module is in the same crate root
+// Import auth components
+use super::auth::{require_auth, AuthenticatedUser};
 
 // Shared application state (including the DB pool)
 #[derive(Clone)]
@@ -19,14 +22,26 @@ pub struct AppState {
 pub fn create_router(pool: DbPool) -> Router {
     let app_state = AppState { pool };
 
-    Router::new()
+    // Define public routes
+    let public_routes = Router::new()
         .route("/health", get(health_check_handler))
         .route("/certificates", get(list_certificates_handler))
         .route("/certificates/:asset_id", get(get_certificate_handler))
         .route("/licences", get(list_licences_handler))
-        .route("/licences/:licence_pda", get(get_licence_handler))
-        // TODO: Add routes for /royalties, /payouts (POST for payouts?)
-        .with_state(app_state) // Share the state with all handlers
+        .route("/licences/:licence_pda", get(get_licence_handler));
+        // Add other public routes here
+
+    // Define protected routes that require authentication
+    let protected_routes = Router::new()
+        .route("/me/licences", get(list_my_licences_handler)) // Example protected route
+        // TODO: Add routes for /royalties, /payouts (likely protected)
+        .route_layer(middleware::from_fn_with_state(app_state.clone(), require_auth)); // Apply auth middleware
+
+    // Combine routers and add state
+    Router::new()
+        .merge(public_routes)
+        .merge(protected_routes)
+        .with_state(app_state)
 }
 
 // --- Route Handlers ---
@@ -114,4 +129,38 @@ asyn fn get_licence_handler(
     }
 }
 
-// TODO: Implement handlers for other routes
+// --- Protected Route Handlers ---
+
+// Example handler for a protected route that lists licences for the authenticated user
+asyn fn list_my_licences_handler(
+    State(state): State<AppState>,
+    Query(page_params): Query<PaginationParams>,
+    user: AuthenticatedUser, // Use the extractor to get user info
+) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
+    tracing::info!("Fetching licences for authenticated user: {}", user.user_id);
+
+    let limit = page_params.limit.unwrap_or(20);
+    let offset = page_params.offset.unwrap_or(0);
+
+    // We need the user's wallet address to filter licences
+    // In a real app, the JWT validation should populate this reliably.
+    let buyer_wallet = match user.wallet_address {
+        Some(addr) => addr,
+        None => {
+            tracing::warn!("User {} has no linked wallet address for filtering licences.", user.user_id);
+            // Return empty list or appropriate error
+            return Err((StatusCode::BAD_REQUEST, "User has no linked wallet address.".to_string()));
+        }
+    };
+
+    // Call DB function, filtering by the authenticated user's wallet
+    match get_licences(&state.pool, Some(buyer_wallet), None, limit, offset).await {
+        Ok(licences) => Ok(Json(licences)),
+        Err(e) => {
+            tracing::error!("Failed to fetch licences for user {}: {}", user.user_id, e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch licences".to_string()))
+        }
+    }
+}
+
+// TODO: Implement handlers for other protected routes
