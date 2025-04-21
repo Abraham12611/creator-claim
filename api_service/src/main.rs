@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 // Import local modules
 mod db;
 mod handlers;
+mod auth; // Declare the auth module
 
 #[tokio::main]
 async fn main() {
