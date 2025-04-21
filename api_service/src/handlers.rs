@@ -13,7 +13,7 @@ use super::db::DbPool;
 use super::auth::{require_auth, AuthenticatedUser};
 use super::config::Auth0Config;
 // Import db functions (make public in db.rs if needed)
-use super::db::{get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda};
+use super::db::{get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda, get_royalties};
 
 // Update AppState to include Auth0Config
 #[derive(Clone)]
@@ -35,8 +35,9 @@ pub fn create_router(app_state: AppState) -> Router {
 
     // Define protected routes that require authentication
     let protected_routes = Router::new()
-        .route("/me/licences", get(list_my_licences_handler)) // Example protected route
-        // TODO: Add routes for /royalties, /payouts (likely protected)
+        .route("/me/licences", get(list_my_licences_handler))
+        .route("/me/royalties", get(list_my_royalties_handler))
+        // TODO: Add routes for /payouts (likely protected)
         .route_layer(middleware::from_fn_with_state(app_state.clone(), require_auth)); // Apply auth middleware correctly with state
 
     // Combine routers and provide the state
@@ -161,6 +162,31 @@ asyn fn list_my_licences_handler(
         Err(e) => {
             tracing::error!("Failed to fetch licences for user {}: {}", user.user_id, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch licences".to_string()))
+        }
+    }
+}
+
+// Handler for fetching royalties for the authenticated user
+asyn fn list_my_royalties_handler(
+    State(state): State<AppState>,
+    Query(page_params): Query<PaginationParams>,
+    user: AuthenticatedUser, // Auth middleware provides this
+) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
+    tracing::info!("Fetching royalties for authenticated user: {}", user.user_id);
+
+    let limit = page_params.limit.unwrap_or(50); // Default limit for royalties
+    let offset = page_params.offset.unwrap_or(0);
+
+    // TODO: The filter might need to be based on user.user_id or a linked beneficiary address
+    // This depends on how royalty payments are stored and indexed.
+    let user_filter = Some(user.user_id.clone()); // Placeholder filter
+
+    // Call DB function (currently a placeholder)
+    match get_royalties(&state.pool, user_filter, None, limit, offset).await {
+        Ok(royalties) => Ok(Json(royalties)),
+        Err(e) => {
+            tracing::error!("Failed to fetch royalties for user {}: {}", user.user_id, e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch royalties".to_string()))
         }
     }
 }
