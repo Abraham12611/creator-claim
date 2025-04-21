@@ -10,7 +10,11 @@ use axum::{
     middleware::{self, Next},
 };
 use serde::{Deserialize, Serialize};
-use std::fmt;
+use std::{fmt, sync::Arc};
+
+// Import config and jwks helper
+use super::config::Auth0Config;
+use super::jwks::decoding_key_for_kid;
 
 // --- Placeholder User Structure ---
 // This would be populated after validating the JWT
@@ -19,6 +23,18 @@ pub struct AuthenticatedUser {
     pub user_id: String, // e.g., Clerk user ID, Auth0 sub
     pub wallet_address: Option<String>, // Potentially linked wallet
     // Add other relevant claims (email, name, etc.)
+}
+
+// Define the expected structure of claims within the Auth0 JWT
+#[derive(Debug, Deserialize)]
+struct Claims {
+    sub: String, // Subject (User ID)
+    iss: String, // Issuer (Auth0 domain URL)
+    aud: String, // Audience (Your API identifier)
+    exp: usize,  // Expiration time (Unix timestamp)
+    email: Option<String>, // Standard claim
+    // Add custom claims here if configured in Auth0 rules/actions
+    // Example: "https://creatorclaim.com/wallet_address": Option<String>,
 }
 
 // --- Placeholder JWT Validation ---
@@ -47,9 +63,7 @@ impl AuthError {
 impl IntoResponse for AuthError {
     fn into_response(self) -> Response {
         let status = match self.error_type {
-            AuthErrorType::MissingToken => StatusCode::UNAUTHORIZED,
-            AuthErrorType::InvalidToken => StatusCode::UNAUTHORIZED,
-            AuthErrorType::ExpiredToken => StatusCode::UNAUTHORIZED,
+            AuthErrorType::MissingToken | AuthErrorType::InvalidToken | AuthErrorType::ExpiredToken => StatusCode::UNAUTHORIZED,
             AuthErrorType::Unauthorized => StatusCode::FORBIDDEN,
         };
         (status, Json(self)).into_response()
@@ -66,62 +80,104 @@ impl fmt::Display for AuthError {
 // Implement std::error::Error
 impl std::error::Error for AuthError {}
 
+// --- Real JWT Validation ---
 
-// Placeholder function to simulate token validation
-async fn validate_token(token: &str) -> Result<AuthenticatedUser, AuthError> {
-    tracing::debug!("Placeholder: Validating token {}", token);
-    // --- Replace with actual JWT validation logic ---
-    // 1. Check token format (Bearer ...)
-    // 2. Decode token without verification to check headers (alg, kid)
-    // 3. Fetch JWKS from Clerk/Auth0 endpoint
-    // 4. Find the correct public key using `kid`
-    // 5. Verify token signature and claims (issuer, audience, expiry)
-    // 6. Extract user info (sub, wallet address if present, etc.)
+async fn validate_token(
+    token: &str,
+    cfg: &Auth0Config, // Pass Auth0 config
+) -> Result<AuthenticatedUser, AuthError>
+{
+    tracing::debug!("Attempting to validate Auth0 JWT...");
 
-    // Placeholder: Assume valid if token is "valid-token"
-    if token == "valid-token" {
-        Ok(AuthenticatedUser {
-            user_id: "user_123_placeholder".to_string(),
-            wallet_address: Some("WalletPlaceholderxxxxxxxxxxxxxxxxxxxxxxxxxxx".to_string()),
-        })
-    } else if token == "expired-token" {
-        Err(AuthError::new(AuthErrorType::ExpiredToken, "Token has expired (placeholder)"))
-    } else {
-         Err(AuthError::new(AuthErrorType::InvalidToken, "Invalid token provided (placeholder)"))
-    }
+    // 1. Decode header only (to read `kid`)
+    let header = jsonwebtoken::decode_header(token)
+        .map_err(|e| {
+            tracing::warn!("Failed to decode JWT header: {}", e);
+            AuthError::new(AuthErrorType::InvalidToken, "Malformed JWT header")
+        })?;
+
+    let kid = header.kid.ok_or_else(|| {
+        tracing::warn!("JWT header missing 'kid'");
+        AuthError::new(AuthErrorType::InvalidToken, "Missing kid in JWT header")
+    })?;
+    tracing::debug!(kid = %kid, "Extracted kid from header");
+
+    // 2. Get RSA public key from JWKS endpoint (with caching)
+    let decoding_key = decoding_key_for_kid(&cfg.domain, &kid).await
+        .map_err(|e| {
+            // Log the underlying error from JWKS fetch
+            tracing::error!("Failed to get decoding key for kid {}: {}", kid, e);
+            AuthError::new(AuthErrorType::InvalidToken, "Unknown or unreachable signing key")
+        })?;
+    tracing::debug!(kid = %kid, "Successfully obtained decoding key");
+
+    // 3. Setup JWT validation parameters
+    let mut validation = jsonwebtoken::Validation::new(header.alg);
+    validation.set_audience(&[cfg.audience.clone()]);
+    validation.set_issuer(&[cfg.issuer.clone()]);
+    validation.validate_exp = true; // Ensure expiration is checked
+    // Add clock skew if needed: validation.leeway = 60;
+
+    // 4. Decode and validate the token + claims
+    let token_data = jsonwebtoken::decode::<Claims>(token, &decoding_key, &validation)
+        .map_err(|e| {
+            tracing::warn!("JWT validation failed: {}", e);
+            match e.kind() {
+                jsonwebtoken::errors::ErrorKind::ExpiredSignature =>
+                    AuthError::new(AuthErrorType::ExpiredToken, "Token has expired"),
+                jsonwebtoken::errors::ErrorKind::InvalidAudience =>
+                    AuthError::new(AuthErrorType::InvalidToken, "Invalid token audience"),
+                jsonwebtoken::errors::ErrorKind::InvalidIssuer =>
+                    AuthError::new(AuthErrorType::InvalidToken, "Invalid token issuer"),
+                // Add more specific errors as needed
+                _ => AuthError::new(AuthErrorType::InvalidToken, "Invalid JWT signature or claims"),
+            }
+        })?;
+    tracing::debug!(claims = ?token_data.claims, "JWT validation successful");
+
+    // 5. Construct AuthenticatedUser from claims
+    Ok(AuthenticatedUser {
+        user_id: token_data.claims.sub, // Use 'sub' claim as user ID
+        // TODO: Map custom claims like wallet address if they exist
+        // wallet_address: token_data.claims.get("https://creatorclaim.com/wallet_address").cloned(),
+        wallet_address: None, // Placeholder
+    })
 }
 
 // --- Axum Middleware & Extractor ---
 
-// Middleware function to enforce authentication
-pub async fn require_auth(
+// Middleware function updated to accept Auth0Config from state
+pub async fn require_auth<B>(
+    // Extract Auth0Config from the application state
+    State(auth_cfg): State<Arc<Auth0Config>>, // Use Arc<Auth0Config>
     headers: HeaderMap,
-    mut request: axum::extract::Request,
-    next: Next
+    mut request: axum::extract::Request<B>,
+    next: Next<B>
 ) -> Result<Response, AuthError>
 {
-    tracing::debug!("Executing auth middleware...");
-    let auth_header = headers.get(AUTHORIZATION)
+    tracing::debug!("Executing require_auth middleware...");
+    let token = headers
+        .get(AUTHORIZATION)
         .and_then(|header| header.to_str().ok())
         .and_then(|header| header.strip_prefix("Bearer "));
 
-    match auth_header {
-        Some(token) => {
-            match validate_token(token).await {
+    match token {
+        Some(t) => {
+            // Pass the config to the validation function
+            match validate_token(t, &auth_cfg).await {
                 Ok(user) => {
-                    // Insert the user into request extensions for handlers to use
                     request.extensions_mut().insert(user);
-                    tracing::debug!("Auth successful, proceeding to next handler.");
+                    tracing::debug!("Auth successful, proceeding.");
                     Ok(next.run(request).await)
                 }
                 Err(e) => {
-                    tracing::warn!("Auth failed: {}", e);
+                    tracing::warn!("Auth validation failed: {}", e);
                     Err(e)
                 }
             }
         }
         None => {
-            tracing::warn!("Auth failed: Missing Authorization header.");
+            tracing::warn!("Auth failed: Missing Bearer token.");
             Err(AuthError::new(AuthErrorType::MissingToken, "Missing Bearer token"))
         }
     }
