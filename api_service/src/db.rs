@@ -84,3 +84,27 @@ pub async fn get_licence_by_pda(pool: &DbPool, licence_pda: &str) -> Result<Opti
         .await?;
     Ok(row)
 }
+
+// Example function to fetch royalty payment information
+// This would need a corresponding table populated by the indexer
+// tracking individual royalty payments or aggregated totals.
+// For now, it returns an empty Vec.
+pub async fn get_royalties(
+    pool: &DbPool,
+    user_id_filter: Option<String>, // Filter by beneficiary user ID
+    asset_id_filter: Option<String>, // Filter by certificate asset_id
+    limit: i64,
+    offset: i64
+) -> Result<Vec<serde_json::Value>, SqlxError> {
+    tracing::debug!(?user_id_filter, ?asset_id_filter, limit, offset, "Fetching royalties from DB (placeholder)");
+    // TODO: Implement actual query against royalty payment table
+    // Example structure:
+    // SELECT payment_timestamp, amount, currency, source_tx, asset_id, beneficiary
+    // FROM royalty_payments
+    // WHERE ($1::VARCHAR IS NULL OR beneficiary = $1)
+    // AND ($2::VARCHAR IS NULL OR asset_id = $2)
+    // ORDER BY payment_timestamp DESC LIMIT $3 OFFSET $4
+
+    // Placeholder implementation
+    Ok(Vec::new())
+}
