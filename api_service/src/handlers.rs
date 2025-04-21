@@ -13,7 +13,7 @@ use super::db::DbPool;
 use super::auth::{require_auth, AuthenticatedUser};
 use super::config::Auth0Config;
 // Import db functions (make public in db.rs if needed)
-use super::db::{get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda, get_royalties};
+use super::db::{get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda, get_royalties, record_payout_request};
 
 // Update AppState to include Auth0Config
 #[derive(Clone)]
@@ -37,7 +37,7 @@ pub fn create_router(app_state: AppState) -> Router {
     let protected_routes = Router::new()
         .route("/me/licences", get(list_my_licences_handler))
         .route("/me/royalties", get(list_my_royalties_handler))
-        // TODO: Add routes for /payouts (likely protected)
+        .route("/me/payouts", post(initiate_payout_handler)) // Add POST route for payouts
         .route_layer(middleware::from_fn_with_state(app_state.clone(), require_auth)); // Apply auth middleware correctly with state
 
     // Combine routers and provide the state
@@ -187,6 +187,61 @@ asyn fn list_my_royalties_handler(
         Err(e) => {
             tracing::error!("Failed to fetch royalties for user {}: {}", user.user_id, e);
             Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to fetch royalties".to_string()))
+        }
+    }
+}
+
+// --- Payout Structures ---
+#[derive(Deserialize, Debug)]
+pub struct PayoutRequestBody {
+    amount: i64, // Or use String/Decimal for precision
+    currency: String, // e.g., "USDC"
+    destination_address: String, // Identifier for payout destination (e.g., bank ID, wallet addr)
+}
+
+#[derive(Serialize, Debug)]
+pub struct PayoutResponse {
+    payout_request_id: String,
+    status: String, // e.g., "pending", "processing"
+}
+
+// Handler for initiating a payout for the authenticated user
+asyn fn initiate_payout_handler(
+    State(state): State<AppState>,
+    user: AuthenticatedUser, // Auth middleware provides this
+    Json(payload): Json<PayoutRequestBody>,
+) -> Result<Json<PayoutResponse>, (StatusCode, String)> {
+    tracing::info!(user_id = %user.user_id, amount = payload.amount, currency = %payload.currency, "Received payout request");
+
+    // TODO: Add validation logic
+    // - Check if user has sufficient available balance (requires balance tracking)
+    // - Validate currency and destination address format
+    // - Check against payout limits, etc.
+    if payload.amount <= 0 {
+        return Err((StatusCode::BAD_REQUEST, "Payout amount must be positive.".to_string()));
+    }
+    if payload.currency != "USDC" { // Example: only allow USDC for now
+         return Err((StatusCode::BAD_REQUEST, "Unsupported currency.".to_string()));
+    }
+
+    // Call DB function (currently a placeholder)
+    match record_payout_request(
+        &state.pool,
+        &user.user_id,
+        payload.amount,
+        &payload.currency,
+        &payload.destination_address
+    ).await {
+        Ok(payout_id) => {
+            let response = PayoutResponse {
+                payout_request_id: payout_id,
+                status: "pending".to_string(), // Initial status
+            };
+            Ok(Json(response))
+        },
+        Err(e) => {
+            tracing::error!("Failed to record payout request for user {}: {}", user.user_id, e);
+            Err((StatusCode::INTERNAL_SERVER_ERROR, "Failed to process payout request".to_string()))
         }
     }
 }
