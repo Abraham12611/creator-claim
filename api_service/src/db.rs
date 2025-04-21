@@ -108,3 +108,31 @@ pub async fn get_royalties(
     // Placeholder implementation
     Ok(Vec::new())
 }
+
+// Example function to record/initiate a payout request
+// This would interact with a payment provider API (Stripe, Circle)
+// and update payout status in the database.
+pub async fn record_payout_request(
+    pool: &DbPool,
+    user_id: &str,
+    amount: i64, // Or use a precise type like Decimal
+    currency: &str, // e.g., "USDC"
+    destination_address: &str, // e.g., bank account ID, crypto address
+) -> Result<String, SqlxError> { // Return a payout request ID
+    let payout_id = uuid::Uuid::new_v4().to_string(); // Generate a unique ID
+    tracing::debug!(user_id, amount, currency, destination_address, payout_id, "Recording payout request (placeholder)");
+
+    // TODO:
+    // 1. Insert request into a `payout_requests` table (status: pending)
+    // 2. Call payment provider API (Stripe/Circle) to initiate transfer
+    // 3. Potentially update request status based on API response
+
+    // Placeholder implementation
+    // Example DB insert:
+    // sqlx::query!(
+    //    "INSERT INTO payout_requests (id, user_id, amount, currency, destination, status, requested_at) VALUES ($1, $2, $3, $4, $5, 'pending', NOW())",
+    //    payout_id, user_id, amount, currency, destination_address
+    // ).execute(pool.as_ref()).await?;
+
+    Ok(payout_id)
+}
