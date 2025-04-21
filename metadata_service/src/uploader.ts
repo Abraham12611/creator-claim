@@ -1,4 +1,6 @@
 import { Buffer } from 'node:buffer'; // Explicit import for Buffer
+import fs from 'node:fs'; // Needed to read wallet file
+import Bundlr from '@bundlr-network/client';
 
 // Placeholder for uploader logic (Arweave/IPFS/S3)
 
@@ -18,50 +20,83 @@ import { Buffer } from 'node:buffer'; // Explicit import for Buffer
 //     credentials: { accessKeyId: process.env.S3_ACCESS_KEY, secretAccessKey: process.env.S3_SECRET_KEY }
 // });
 
+// --- Arweave/Bundlr Configuration ---
+let bundlrInstance: Bundlr | null = null;
+
+function getBundlr() {
+    if (!bundlrInstance) {
+        const networkUrl = process.env.BUNDLR_NETWORK_URL || "http://devnet.bundlr.network"; // Default to devnet
+        const currency = process.env.BUNDLR_CURRENCY || "solana";
+        const walletPath = process.env.PAYER_WALLET_JSON;
+
+        if (!walletPath) {
+            throw new Error("PAYER_WALLET_JSON environment variable is required for Bundlr.");
+        }
+        if (!fs.existsSync(walletPath)) {
+             throw new Error(`Payer wallet file not found at: ${walletPath}`);
+        }
+
+        const privateKey = fs.readFileSync(walletPath, 'utf-8');
+
+        console.log(`Initializing Bundlr: Network=${networkUrl}, Currency=${currency}`);
+        try {
+             // Note: For Solana, the privateKey is the JSON keypair file content as a string
+            bundlrInstance = new Bundlr(networkUrl, currency, privateKey);
+            console.log(`Bundlr initialized. Address: ${bundlrInstance.address}`);
+        } catch (error: any) {
+             console.error("Failed to initialize Bundlr:", error);
+             throw new Error(`Failed to initialize Bundlr: ${error.message}`);
+        }
+
+    }
+    return bundlrInstance;
+}
+
 /**
- * Uploads file buffer to permanent storage (Arweave/IPFS) and optionally caches.
+ * Uploads file buffer to permanent storage (Arweave via Bundlr).
  *
  * @param fileBuffer The file data buffer.
  * @param contentType The MIME type of the file.
- * @returns The content identifier (e.g., Arweave TX ID or IPFS CID).
+ * @returns The Arweave Transaction ID.
  */
 export async function uploadFile(fileBuffer: Buffer, contentType: string): Promise<string> {
-    console.log(`[Uploader] Received file (${contentType}, ${fileBuffer.length} bytes). Uploading...`);
+    console.log(`[Uploader] Attempting Arweave upload via Bundlr (${contentType}, ${fileBuffer.length} bytes)...`);
+    const bundlr = getBundlr();
 
-    // --- Placeholder Logic ---
-    // Replace with actual upload to Arweave or IPFS
+    try {
+        // Prepare tags
+        const tags = [{ name: "Content-Type", value: contentType }];
 
-    // Example: Arweave/Bundlr Upload
-    // try {
-    //     const tags = [{ name: "Content-Type", value: contentType }];
-    //     const tx = await bundlr.upload(fileBuffer, { tags });
-    //     const arweaveTxId = tx.id;
-    //     console.log(`[Uploader] File uploaded to Arweave: ${arweaveTxId}`);
-    //     // Optional: Cache to S3
-    //     // await cacheToS3(arweaveTxId, fileBuffer, contentType);
-    //     return arweaveTxId;
-    // } catch (error) {
-    //     console.error("[Uploader] Error uploading to Arweave:", error);
-    //     throw new Error("Failed to upload file to permanent storage.");
-    // }
+        // Optional: Fund Bundlr node if needed (can be slow, often done separately)
+        // const price = await bundlr.getPrice(fileBuffer.length);
+        // const balance = await bundlr.getLoadedBalance();
+        // if (balance.isLessThan(price)) {
+        //     console.log(`Funding Bundlr node: ${price.minus(balance).toString()} lamports`);
+        //     await bundlr.fund(price.minus(balance));
+        // }
 
-    // Example: IPFS Upload
-    // try {
-    //     const result = await ipfs.add(fileBuffer);
-    //     const ipfsCid = result.cid.toString();
-    //     console.log(`[Uploader] File uploaded to IPFS: ${ipfsCid}`);
-    //     // Optional: Cache to S3
-    //     // await cacheToS3(ipfsCid, fileBuffer, contentType);
-    //     return ipfsCid;
-    // } catch (error) {
-    //     console.error("[Uploader] Error uploading to IPFS:", error);
-    //     throw new Error("Failed to upload file to permanent storage.");
-    // }
+        // Perform the upload
+        const tx = await bundlr.upload(fileBuffer, { tags });
+        const arweaveTxId = tx.id;
 
-    // Placeholder return value
-    const placeholderId = `placeholder_${Date.now()}`;
-    console.log(`[Uploader] Placeholder upload complete. ID: ${placeholderId}`);
-    return placeholderId;
+        if (!arweaveTxId) {
+             throw new Error("Bundlr upload transaction did not return an ID.");
+        }
+
+        console.log(`[Uploader] File uploaded to Arweave via Bundlr. Tx ID: ${arweaveTxId}`);
+        // Optional: Cache to S3 if implemented
+        // await cacheToS3(arweaveTxId, fileBuffer, contentType);
+        return arweaveTxId;
+
+    } catch (error: any) {
+        console.error("[Uploader] Error uploading to Arweave via Bundlr:", error);
+        // Attempt to provide more specific feedback if possible
+        let message = "Failed to upload file to Arweave.";
+        if (error.message && error.message.includes("Not enough funds")) {
+             message = "Bundlr account needs funding. Please fund address: " + bundlr.address;
+        }
+        throw new Error(message);
+    }
 }
 
 /**
