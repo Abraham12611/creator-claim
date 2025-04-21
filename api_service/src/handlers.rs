@@ -8,20 +8,22 @@ use axum::{
 };
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use super::db::{DbPool, get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda}; // Assuming db module is in the same crate root
-// Import auth components
+use super::db::DbPool;
+// Import auth components and config
 use super::auth::{require_auth, AuthenticatedUser};
+use super::config::Auth0Config;
+// Import db functions (make public in db.rs if needed)
+use super::db::{get_certificates, get_certificate_by_id, get_licences, get_licence_by_pda};
 
-// Shared application state (including the DB pool)
+// Update AppState to include Auth0Config
 #[derive(Clone)]
 pub struct AppState {
     pool: DbPool,
+    auth_cfg: Arc<Auth0Config>, // Added Auth0 config
 }
 
-// Helper function to create the main router
-pub fn create_router(pool: DbPool) -> Router {
-    let app_state = AppState { pool };
-
+// Update create_router to accept the combined AppState
+pub fn create_router(app_state: AppState) -> Router {
     // Define public routes
     let public_routes = Router::new()
         .route("/health", get(health_check_handler))
@@ -35,9 +37,9 @@ pub fn create_router(pool: DbPool) -> Router {
     let protected_routes = Router::new()
         .route("/me/licences", get(list_my_licences_handler)) // Example protected route
         // TODO: Add routes for /royalties, /payouts (likely protected)
-        .route_layer(middleware::from_fn_with_state(app_state.clone(), require_auth)); // Apply auth middleware
+        .route_layer(middleware::from_fn_with_state(app_state.clone(), require_auth)); // Apply auth middleware correctly with state
 
-    // Combine routers and add state
+    // Combine routers and provide the state
     Router::new()
         .merge(public_routes)
         .merge(protected_routes)
@@ -65,7 +67,7 @@ pub struct LicenceFilterParams {
 
 // Handler to list certificates (with basic pagination)
 asyn fn list_certificates_handler(
-    State(state): State<AppState>,
+    State(state): State<AppState>, // Uses the combined AppState
     Query(params): Query<PaginationParams>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
     let limit = params.limit.unwrap_or(20); // Default limit
@@ -82,7 +84,7 @@ asyn fn list_certificates_handler(
 
 // Handler to get a single certificate by its asset ID
 asyn fn get_certificate_handler(
-    State(state): State<AppState>,
+    State(state): State<AppState>, // Uses the combined AppState
     Path(asset_id): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     match get_certificate_by_id(&state.pool, &asset_id).await {
@@ -97,7 +99,7 @@ asyn fn get_certificate_handler(
 
 // Handler to list licences (with basic pagination and filtering)
 asyn fn list_licences_handler(
-    State(state): State<AppState>,
+    State(state): State<AppState>, // Uses the combined AppState
     Query(page_params): Query<PaginationParams>,
     Query(filter_params): Query<LicenceFilterParams>,
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
@@ -116,7 +118,7 @@ asyn fn list_licences_handler(
 
 // Handler to get a single licence by its PDA
 asyn fn get_licence_handler(
-    State(state): State<AppState>,
+    State(state): State<AppState>, // Uses the combined AppState
     Path(licence_pda): Path<String>,
 ) -> Result<Json<serde_json::Value>, (StatusCode, String)> {
     match get_licence_by_pda(&state.pool, &licence_pda).await {
@@ -133,9 +135,9 @@ asyn fn get_licence_handler(
 
 // Example handler for a protected route that lists licences for the authenticated user
 asyn fn list_my_licences_handler(
-    State(state): State<AppState>,
+    State(state): State<AppState>, // Uses the combined AppState
     Query(page_params): Query<PaginationParams>,
-    user: AuthenticatedUser, // Use the extractor to get user info
+    user: AuthenticatedUser, // Auth middleware provides this
 ) -> Result<Json<Vec<serde_json::Value>>, (StatusCode, String)> {
     tracing::info!("Fetching licences for authenticated user: {}", user.user_id);
 
