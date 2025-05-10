@@ -1,0 +1,24 @@
+[features]
+seeds = false
+
+[programs.localnet]
+creatorclaim_certificate = "CitJs7m4UWh5Co4d1fJ9Tepsvg6VPbD44A2cFMEe5B2i"
+creatorclaim_licence = "ARYjntutjHDKM1d66LTzEwn8khjiVYvnG4KwaHgEbXb"
+
+[registry]
+url = "https://anchor.projectserum.com"
+
+[provider]
+cluster = "localnet"
+wallet = "~/.config/solana/id.json"
+
+[scripts]
+test = "yarn test"
+
+[workspace]
+types = "target/types"
+
+
+[toolchain]
+anchor_version = "0.31.1"
+solana_version = "2.1.0"
