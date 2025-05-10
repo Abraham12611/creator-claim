@@ -105,5 +105,8 @@ Cargo.lock
 
 # Project specific
 frontend-demo/
+<<<<<<< HEAD
 components/
 >>>>>>> d106db0 (Update .gitignore with comprehensive patterns)
+=======
+>>>>>>> 6b1a76e (Update .gitignore with comprehensive patterns)
