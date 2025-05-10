@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Rust/Cargo build artifacts
 /target/
 **/target/
@@ -6,12 +7,64 @@
 /node_modules/
 /migrations/deploy.log
 /test-ledger/
+=======
+# Dependencies
+node_modules/
+**/node_modules/
+.pnp/
+.pnp.js
+
+# Build outputs
+dist/
+build/
+**/dist/
+**/build/
+target/
+**/target/
+
+# Environment files
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+
+# IDE files
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Debug logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.log
+
+# TypeScript
+*.tsbuildinfo
+next-env.d.ts
+
+# Solana
+.anchor/
+test-ledger/
+migrations/deploy.log
+
+# Rust
+**/*.rs.bk
+Cargo.lock
+>>>>>>> d106db0 (Update .gitignore with comprehensive patterns)
 
 # Editor backups
 *.rs.bk
 *.swp
 *.swo
 
+<<<<<<< HEAD
 # OS generated files
 .DS_Store
 
@@ -25,6 +78,9 @@
 # User requested ignores
 /extra/
 
+=======
+# Cache
+>>>>>>> d106db0 (Update .gitignore with comprehensive patterns)
 .cache/
 .cursor-server/
 .cursorrules/
@@ -32,6 +88,11 @@
 .cursorrules.txt
 .cursorrules.yaml
 .cursorrules.yml
+<<<<<<< HEAD
+=======
+
+# System files
+>>>>>>> d106db0 (Update .gitignore with comprehensive patterns)
 .bash_history
 .bashrc
 .ssh/
@@ -39,3 +100,10 @@
 .wget-hsts
 .gitconfig
 .npm/
+<<<<<<< HEAD
+=======
+
+# Project specific
+frontend-demo/
+components/
+>>>>>>> d106db0 (Update .gitignore with comprehensive patterns)
