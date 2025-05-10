@@ -1,0 +1,28 @@
+[package]
+name = "creatorclaim_certificate"
+version = "0.1.0"
+description = "Created with Anchor"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib", "lib"]
+name = "creatorclaim_certificate"
+
+[features]
+no-entrypoint = []
+no-idl = []
+no-log-ix-name = []
+cpi = ["no-entrypoint"]
+default = []
+idl-build = ["anchor-lang/idl-build"]
+
+[dependencies]
+anchor-lang.workspace = true
+anchor-spl.workspace = true
+solana-security-txt = "1.1.1"
+mpl-bubblegum.workspace = true
+spl-account-compression.workspace = true
+spl-token-2022.workspace = true
+borsh.workspace = true
+solana-program.workspace = true
+zeroize.workspace = true
