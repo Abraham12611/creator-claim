@@ -1,7 +1,7 @@
 # CreatorClaim – Real‑Time Licensing & Royalty Engine for Creators
 *A Solana‑powered platform that turns every creative work into a traceable, instantly‑paid asset.*
 
-![CreatorClaim Banner](./assets/placeholder-banner.png)
+![CreatorClaim Banner](https://i.ibb.co/gb8kzHYV/CC-banner.png)
 
 <p align="center">
   <a href="https://twitter.com/CreatorClaim">Twitter</a> • <a href="https://creatorclaim.com">Website</a>
