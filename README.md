@@ -201,8 +201,8 @@ From a creator's perspective, CreatorClaim offers a seamless process to monetize
 
 5. **Earnings & Analytics:** The platform provides tools for creators to track their total earnings, number of licenses sold, and content performance. Because every license is an on-chain record, creators can even independently verify their revenue stream on Solana (through the blockchain explorer or querying the program accounts). For convenience, the dashboard will allow exporting earnings data (with planned features like generating a **1099-K** or **DAC7** report for taxes, per jurisdiction).
 
-![Creator Dashboard](./assets/placeholder-creator-dashboard.png)
-*Creator dashboard showing an overview of content certificates and real-time updates of license sales and royalty distributions.*
+![Creator Dashboard](https://i.ibb.co/YFQr26cj/cc-ss-1.png)
+
 
 6. **Content Management:** Creators remain in control. If needed, a creator can update certain aspects (we plan an instruction to update price or metadata hash if absolutely required, given appropriate permissions). If a creator must revoke a license (say a misuse or a breach of terms by a buyer), they can coordinate with platform admins to call the `revoke_licence` instruction – after which that buyer's license status flips to revoked (the dashboard would reflect this change too). In future updates, creators will also be able to issue new content or retire old content easily, all from this unified interface.
 
@@ -228,8 +228,8 @@ For content buyers (licensees), CreatorClaim offers a familiar e-commerce-like e
    * The buyer confirms and the app creates a transaction to call the **purchase_licence** instruction on-chain. The transaction is presented to the buyer's wallet for approval.
    * After approval, within a couple of seconds the transaction confirms. The buyer sees a success message "License purchased!" and the UI now provides access to download the high-quality asset file.
 
-![Licence Purchase Modal](./assets/placeholder-license-modal.png)
-*Buyer's checkout modal showing the asset details, license terms summary, and purchase confirmation through a Solana wallet.*
+![Licence Purchase Modal](https://i.ibb.co/nNMCzQb1/cc-ss-2.png)
+
 
 4. **Automatic Royalty Distribution:** From the buyer's perspective, this step is seamless – they just paid the price. But it's worth noting what happened in that single transaction:
 
